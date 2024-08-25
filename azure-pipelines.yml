@@ -1,0 +1,135 @@
+# Deploy to Azure Kubernetes Service
+# Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+- vm
+
+pool: Default
+
+resources:
+- repo: self
+
+parameters:
+  - name: javaVersion 
+    type: string
+    default: '17'
+
+  - name: mavenVersion
+    type: string 
+    default: '3.6.3'
+
+variables:
+# - group: aks-cred
+
+- name: BRANCH_NAME
+  value: $[replace(variables['Build.SourceBranch'], 'refs/heads/', '')]
+
+  # Container registry service connection established during pipeline creation
+- name: imageRepository
+  value: 'springboot'
+- name: containerRegistry
+  value: 'huyldq1.azurecr.io'
+- name: dockerfilePath
+  value: '**/Dockerfile'
+- name: tag
+  value: '$(Build.BuildId)'
+
+  # M2_HOME
+- name: M2_HOME
+  value:  /opt/maven/apache-maven-${{ parameters.mavenVersion }}
+
+
+stages:
+- stage: Build
+  displayName: Build stage
+  jobs:
+  - job: Build
+    displayName: Build
+    steps:
+    - task: JavaToolInstaller@0
+      inputs:
+        versionSpec: "${{ parameters.javaVersion }}"
+        jdkArchitectureOption: x64
+        jdkSourceOption: LocalDirectory
+        jdkFile: "/home/huy/openjdk-${{ parameters.javaVersion }}.0.2_linux-x64_bin.tar.gz"
+        jdkDestinationDirectory: "/home/huy/binaries/externals"
+        cleanDestinationDirectory: true
+
+    - task: SonarCloudPrepare@1
+      inputs:
+        SonarCloud: 'SonarCloud'
+        organization: 'huyldq'
+        scannerMode: 'Other'
+        extraProperties: |
+          # Additional properties that will be passed to the scanner, 
+          # Put one key=value per line, example:
+          # sonar.exclusions=**/*.bin
+          sonar.projectKey=huyldq_Spring-Boot
+          sonar.projectName=Spring Boot
+        
+    - task: Maven@3
+      inputs:
+        mavenPomFile: 'pom.xml'
+        publishJUnitResults: false
+        testResultsFiles: '**/surefire-reports/TEST-*.xml'
+        javaHomeOption: 'JDKVersion'
+        mavenVersionOption: 'Default'
+        mavenAuthenticateFeed: false
+        effectivePomSkip: false
+        sonarQubeRunAnalysis: true
+        sqMavenPluginVersionChoice: 'latest'
+        goals: 'package -Dmaven.test.skip=true'
+      env:
+        PATH: $(M2_HOME)/bin:$(PATH)
+
+    - task: CopyFiles@2
+      displayName: 'Copy Files to artifact staging directory'
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)'
+        Contents: '**/target/*.?(war|jar)'
+        TargetFolder: $(Build.ArtifactStagingDirectory)
+
+    - task: CopyFiles@2
+      displayName: 'Copy Service to artifact staging directory'
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)'
+        Contents: 'spring.service'
+        TargetFolder: $(Build.ArtifactStagingDirectory)
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: $(Build.ArtifactStagingDirectory)
+        artifactName: SpringBoot
+
+  - deployment: VMDeploy
+    displayName: Deploy to VM
+    dependsOn: Build
+    environment: 
+      name: VM
+      resourceName: sefhost
+      resourceType: virtualMachine
+    strategy:
+      runOnce:
+          deploy:   
+            steps:
+            - task: CopyFiles@2
+              displayName: 'Copy artifact to opt'
+              inputs:
+                SourceFolder: '$(Agent.BuildDirectory)/SpringBoot/target'
+                Contents: '*.jar'
+                OverWrite: true
+                TargetFolder: /opt/spring
+
+            - script: sudo cp $(Agent.BuildDirectory)/SpringBoot/spring.service /etc/systemd/system/
+              displayName: 'Copy service files'
+              
+            - script: |
+                sudo systemctl daemon-reload
+                sudo systemctl restart spring.service
+              displayName: 'Start service'  
+
+            - script: | 
+                sudo systemctl enable spring.service
+              displayName: 'Enable service'
+            

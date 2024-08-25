@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: springboot
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: pre.huyhome.site
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service: 
+            name: springboot
+            port: 
+              number: 8080

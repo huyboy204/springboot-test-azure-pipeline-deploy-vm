@@ -1,0 +1,9 @@
+[Unit]
+Description=Spring Boot
+
+[Service] 
+ExecStart=java -jar /opt/spring/spring-data-jpa-mysql-2.0.jar
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

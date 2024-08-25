@@ -1,0 +1,30 @@
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: springboot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: springboot
+  template:
+    metadata:
+      labels:
+        app: springboot
+    spec:
+      containers:
+        - name: springboot 
+          image: huyldq1.azurecr.io/springboot
+          ports:
+          - containerPort: 8080
+          env:
+          - name: MYSQL_USER
+            valueFrom:
+              secretKeyRef:
+                name: db-secrets
+                key: db-user
+          - name: MYSQL_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: db-secrets
+                key: db-password
